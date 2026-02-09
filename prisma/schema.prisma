@@ -1,0 +1,639 @@
+// ⚠️ IMPORTANT: When modifying this schema, ALWAYS create a migration!
+// Run: npm run migrate:auto <migration-name>
+// Example: npm run migrate:auto add_new_field
+// See MIGRATION_GUIDE.md for details
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                       String               @id @default(uuid())
+  email                    String               @unique
+  password                 String
+  firstName                String
+  lastName                 String
+  phone                    String?
+  userType                 UserType             @default(OPERATOR)
+  role                     UserRole?
+  profileImage             String?
+  isActive                 Boolean              @default(true)
+  lastLoginAt              DateTime?
+  isOnline                 Boolean              @default(false)
+  lastSeenAt               DateTime?
+  createdAt                DateTime             @default(now())
+  updatedAt                DateTime             @updatedAt
+  mustChangePassword       Boolean              @default(true)
+  inviteToken              String?              @unique
+  inviteTokenExpiresAt     DateTime?
+  beforeAfter              BeforeAfter[]        @relation("BeforeAfterPatient")
+  checklists               Checklist[]          @relation("ChecklistOperator")
+  patientChecklists        Checklist[]          @relation("ChecklistPatient")
+  createdContent           Content[]            @relation("ContentCreator")
+  patientMessages          Message[]            @relation("MessagePatient")
+  messages                 Message[]            @relation("MessageSender")
+  patientProfile           Patient?
+  patientAccesses          PatientAccess[]      @relation("UserPatientAccess")
+  patientAccessesAsPatient PatientAccess[]      @relation("PatientAccessPatient")
+  patientContent           PatientContent[]     @relation("PatientContentPatient")
+  patientProductsAsPatient PatientProduct[]     @relation("PatientProductPatient")
+  patientUploads           PatientUpload[]      @relation("PatientUploadPatient")
+  reviewedUploads          PatientUpload[]      @relation("PatientUploadReviewer")
+  uploadReplies            PatientUploadReply[] @relation("PatientUploadReplyOperator")
+  operatorSessions         Session[]            @relation("SessionOperator")
+  uploadedSessionFiles     SessionFile[]        @relation("SessionFileUploader")
+  patientSessions          Session[]            @relation("SessionPatient")
+  showcaseApprovals        Showcase[]           @relation("ShowcaseApprover")
+  showcase                 Showcase?            @relation("ShowcasePatient")
+  contentRecommendations   ContentRecommendation[] @relation("ContentRecommendationPatient")
+  askedQuestions           SessionQuestion[]    @relation("QuestionAsker")
+  answeredQuestions        SessionQuestion[]    @relation("QuestionAnswerer")
+  deviceTokens             DeviceToken[]
+  notifications            Notification[]
+  groupMemberships         GroupMember[]        @relation("GroupMemberUser")
+  messageReadReceipts      MessageReadReceipt[] @relation("MessageReadReceipt")
+
+  @@index([email])
+  @@index([userType])
+}
+
+model Patient {
+  id                 String    @id
+  dateOfBirth        DateTime?
+  isInTreatment      Boolean   @default(true)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  medicalHistory     String?
+  allergies          String?
+  medications        String?
+  previousTreatments String?
+  notes              String?
+  user               User      @relation(fields: [id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([isInTreatment])
+}
+
+model PatientAccess {
+  id         String   @id @default(uuid())
+  patientId  String
+  operatorId String
+  canView    Boolean  @default(true)
+  canEdit    Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @default(now()) @updatedAt
+  operator   User     @relation("UserPatientAccess", fields: [operatorId], references: [id], onDelete: Cascade)
+  patient    User     @relation("PatientAccessPatient", fields: [patientId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([patientId, operatorId])
+  @@index([patientId])
+  @@index([operatorId])
+}
+
+model Session {
+  id                   String               @id @default(uuid())
+  patientId            String
+  operatorId           String
+  date                 DateTime
+  status               SessionStatus        @default(SCHEDULED)
+  patientNotes         String?              // Notes visible to patient
+  technicalNotes       String?              // Internal notes for professionals only
+  photos               String[]
+  reminderSentAt       DateTime?
+  preparationChecklist Json?
+  feedbackSubmitted    Boolean              @default(false)
+  // Before/After photos (can be uploaded anytime)
+  beforePhoto          String?
+  afterPhoto           String?
+  // Session package tracking
+  packageId            String?              // Groups sessions in a treatment package
+  sessionNumber        Int?                 // Session number in the package (1, 2, 3...)
+  totalSessions        Int?                 // Total sessions in package
+  // Request/Approval workflow
+  completeRequestedBy  String?              // User ID who requested completion
+  completeRequestedAt  DateTime?            // When completion was requested
+  completeAcceptedBy   String?              // User ID who accepted completion
+  completeAcceptedAt   DateTime?            // When completion was accepted
+  deleteRequestedBy    String?              // User ID who requested deletion
+  deleteRequestedAt    DateTime?            // When deletion was requested
+  deleteAcceptedBy     String?              // User ID who accepted deletion
+  deleteAcceptedAt     DateTime?            // When deletion was accepted
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+  patientUploads       PatientUpload[]      @relation("SessionPatientUpload")
+  operator             User                 @relation("SessionOperator", fields: [operatorId], references: [id])
+  patient              User                 @relation("SessionPatient", fields: [patientId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  files                SessionFile[]
+  instructions         SessionInstruction[]
+  questions            SessionQuestion[]
+  feedback             SessionFeedback?
+
+  @@index([patientId])
+  @@index([operatorId])
+  @@index([date])
+  @@index([status])
+  @@index([packageId])
+  @@index([date, status]) // Composite index for date and status queries
+}
+
+model SessionFile {
+  id              String              @id @default(uuid())
+  sessionId       String
+  fileType        FileType
+  filePath        String
+  fileName        String
+  fileSize        Int?
+  mimeType        String?
+  uploadedBy      String
+  visibility      FileVisibility      @default(PATIENT_VISIBLE)
+  createdAt       DateTime            @default(now())
+  session         Session             @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  uploader        User                @relation("SessionFileUploader", fields: [uploadedBy], references: [id])
+
+  @@index([sessionId])
+  @@index([uploadedBy])
+}
+
+enum FileVisibility {
+  PATIENT_VISIBLE
+  OPERATOR_ONLY
+}
+
+model SessionInstruction {
+  id               String   @id @default(uuid())
+  sessionId        String
+  professionalType String
+  instruction      String
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime
+  session          Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
+}
+
+model SessionQuestion {
+  id          String   @id @default(uuid())
+  sessionId   String
+  question    String
+  answer      String?
+  askedBy     String
+  answeredBy  String?
+  answeredAt  DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  session     Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  asker       User     @relation("QuestionAsker", fields: [askedBy], references: [id])
+  answerer    User?    @relation("QuestionAnswerer", fields: [answeredBy], references: [id])
+
+  @@index([sessionId])
+  @@index([askedBy])
+}
+
+model Message {
+  id              String              @id @default(uuid())
+  patientId       String?             // Nullable for group messages
+  groupId         String?             // For group chat
+  operatorId      String?             // 1:1 thread: the operator in this conversation (null = legacy or group)
+  senderId        String
+  content         String
+  mentions        String[]            @default([])
+  replyToId       String?             // Message being replied to
+  isRead          Boolean             @default(false)
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @default(now()) @updatedAt
+  patient         User?               @relation("MessagePatient", fields: [patientId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  group           GroupChat?          @relation("MessageGroup", fields: [groupId], references: [id], onDelete: Cascade)
+  sender          User                @relation("MessageSender", fields: [senderId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  replyTo         Message?            @relation("MessageReply", fields: [replyToId], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  replies         Message[]           @relation("MessageReply")
+  attachments     MessageAttachment[]
+  readReceipts    MessageReadReceipt[]
+
+  @@index([patientId])
+  @@index([groupId])
+  @@index([patientId, operatorId])   // 1:1 thread scope
+  @@index([senderId])
+  @@index([createdAt])
+  @@index([patientId, isRead]) // Composite index for patient unread queries
+  @@index([isRead]) // Index for unread message queries
+}
+
+model GroupChat {
+  id          String        @id @default(uuid())
+  name        String
+  description String?
+  imageUrl    String?
+  isActive    Boolean       @default(true)
+  createdBy   String
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  members     GroupMember[]
+  messages    Message[]     @relation("MessageGroup")
+
+  @@index([isActive])
+  @@index([createdAt])
+}
+
+model GroupMember {
+  id        String    @id @default(uuid())
+  groupId   String
+  userId    String
+  role      GroupRole @default(MEMBER)
+  joinedAt  DateTime  @default(now())
+  leftAt    DateTime?
+  group     GroupChat @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user      User      @relation("GroupMemberUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, userId])
+  @@index([groupId])
+  @@index([userId])
+}
+
+model MessageReadReceipt {
+  id        String   @id @default(uuid())
+  messageId String
+  userId    String
+  readAt    DateTime @default(now())
+  message   Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user      User     @relation("MessageReadReceipt", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, userId])
+  @@index([messageId])
+  @@index([userId])
+}
+
+model Content {
+  id            String           @id @default(uuid())
+  title         String
+  description   String?
+  contentType   ContentType
+  filePath      String?
+  url           String?
+  thumbnail     String?
+  isPublic      Boolean          @default(false)
+  publishDate   DateTime?
+  expiresAt     DateTime?
+  viewCount     Int              @default(0)
+  createdBy     String
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+  creator       User             @relation("ContentCreator", fields: [createdBy], references: [id])
+  patientAccess PatientContent[]
+  recommendations ContentRecommendation[]
+
+  @@index([isPublic])
+  @@index([createdBy])
+  @@index([publishDate])
+  @@index([expiresAt])
+}
+
+model PatientContent {
+  id        String    @id @default(uuid())
+  patientId String
+  contentId String
+  viewedAt  DateTime?
+  isFavorite Boolean  @default(false)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  content   Content   @relation(fields: [contentId], references: [id], onDelete: Cascade)
+  patient   User      @relation("PatientContentPatient", fields: [patientId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([patientId, contentId])
+  @@index([patientId])
+  @@index([isFavorite])
+}
+
+model Checklist {
+  id            String    @id @default(uuid())
+  patientId     String
+  operatorId    String
+  title         String
+  description   String?
+  items         Json
+  dueDate       DateTime?
+  reminderSentAt DateTime?
+  completed     Boolean   @default(false)
+  completedAt   DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  operator      User      @relation("ChecklistOperator", fields: [operatorId], references: [id])
+  patient       User      @relation("ChecklistPatient", fields: [patientId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([patientId])
+  @@index([operatorId])
+}
+
+model BeforeAfter {
+  id          String   @id @default(uuid())
+  patientId   String
+  beforeImage String
+  afterImage  String
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  patient     User     @relation("BeforeAfterPatient", fields: [patientId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([patientId])
+}
+
+model Showcase {
+  id              String         @id @default(uuid())
+  patientId       String         @unique
+  beforeImage     String
+  afterImage      String
+  title           String
+  description     String?
+  testimonial     String?
+  treatmentType   TreatmentType?
+  timePeriod      String?
+  status          ShowcaseStatus @default(PENDING)
+  approvedBy      String?
+  approvedAt      DateTime?
+  rejectionReason String?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  approver        User?          @relation("ShowcaseApprover", fields: [approvedBy], references: [id])
+  patient         User           @relation("ShowcasePatient", fields: [patientId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([status])
+  @@index([treatmentType])
+  @@index([patientId])
+}
+
+model Product {
+  id              String           @id @default(uuid())
+  name            String
+  description     String?
+  instructions    String?
+  benefits        String?
+  image           String?
+  category        String?
+  isActive        Boolean          @default(true)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  patientProducts PatientProduct[]
+
+  @@index([isActive])
+  @@index([category])
+}
+
+model PatientProduct {
+  id             String    @id @default(uuid())
+  patientId      String
+  productId      String
+  assignedAt     DateTime  @default(now())
+  usageStartedAt DateTime?
+  lastUsedAt     DateTime?
+  usageCount     Int       @default(0)
+  notes          String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  patient        User      @relation("PatientProductPatient", fields: [patientId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  product        Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([patientId, productId])
+  @@index([patientId])
+  @@index([productId])
+}
+
+model PasswordReset {
+  id        String   @id @default(uuid())
+  email     String
+  token     String   @unique
+  expiresAt DateTime
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([token])
+  @@index([email])
+  @@index([expiresAt])
+}
+
+model ClinicConfig {
+  id                           String   @id @default(uuid())
+  clinicName                   String
+  logo                         String?
+  primaryColor                 String?  @default("#8e4453")
+  secondaryColor               String?  @default("#8b5509")
+  backgroundColor              String?  @default("#f9f6f2")
+  surfaceColor                 String?  @default("#ece0d0")
+  termsOfService               String?
+  privacyPolicy                String?
+  supportEmail                 String?
+  supportPhone                 String?
+  featureChatEnabled           Boolean  @default(true)
+  featurePatientUploadsEnabled Boolean  @default(true)
+  featureCommunityEnabled      Boolean  @default(true)
+  createdAt                    DateTime @default(now())
+  updatedAt                    DateTime @updatedAt
+}
+
+model PatientUpload {
+  id          String               @id @default(uuid())
+  patientId   String
+  uploadType  PatientUploadType
+  filePath    String
+  fileName    String
+  fileSize    Int?
+  mimeType    String?
+  description String?
+  status      PatientUploadStatus  @default(PENDING)
+  reviewedBy  String?
+  reviewedAt  DateTime?
+  sessionId   String?
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+  patient     User                 @relation("PatientUploadPatient", fields: [patientId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  reviewer    User?                @relation("PatientUploadReviewer", fields: [reviewedBy], references: [id])
+  session     Session?             @relation("SessionPatientUpload", fields: [sessionId], references: [id])
+  replies     PatientUploadReply[]
+
+  @@index([patientId])
+  @@index([status])
+  @@index([uploadType])
+  @@index([sessionId])
+  @@index([createdAt]) // Index for createdAt queries
+}
+
+model PatientUploadReply {
+  id              String        @id @default(uuid())
+  patientUploadId String
+  operatorId      String
+  content         String
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  operator        User          @relation("PatientUploadReplyOperator", fields: [operatorId], references: [id])
+  patientUpload   PatientUpload @relation(fields: [patientUploadId], references: [id], onDelete: Cascade)
+
+  @@index([patientUploadId])
+  @@index([operatorId])
+}
+
+model MessageAttachment {
+  id        String   @id @default(uuid())
+  messageId String
+  filePath  String
+  fileName  String
+  fileSize  Int?
+  mimeType  String?
+  createdAt DateTime @default(now())
+  message   Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@index([messageId])
+}
+
+model SessionFeedback {
+  id          String   @id @default(uuid())
+  sessionId   String   @unique
+  rating      Int
+  comments    String?
+  submittedAt DateTime @default(now())
+  session     Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
+}
+
+model ContentRecommendation {
+  id          String   @id @default(uuid())
+  contentId   String
+  patientId   String
+  reason      String?
+  createdAt   DateTime @default(now())
+  content     Content  @relation(fields: [contentId], references: [id], onDelete: Cascade)
+  patient     User     @relation("ContentRecommendationPatient", fields: [patientId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([contentId, patientId])
+  @@index([patientId])
+  @@index([contentId])
+}
+
+model AuditLog {
+  id           String      @id @default(uuid())
+  userId       String?
+  userType     UserType?
+  action       AuditAction
+  resourceType String?
+  resourceId   String?
+  details      Json?
+  ipAddress    String?
+  userAgent    String?
+  createdAt    DateTime    @default(now())
+
+  @@index([userId])
+  @@index([action])
+  @@index([resourceType])
+  @@index([createdAt])
+}
+
+enum UserRole {
+  ADMIN
+  SUPPORT
+  BASIC
+}
+
+enum UserType {
+  PATIENT
+  OPERATOR
+}
+
+enum SessionStatus {
+  SCHEDULED
+  COMPLETED
+  CANCELLED
+}
+
+enum ContentType {
+  VIDEO
+  ARTICLE
+  IMAGE
+  DOCUMENT
+}
+
+enum FileType {
+  PHOTO
+  VIDEO
+  EXAM
+  DOCUMENT
+}
+
+enum TreatmentType {
+  AESTHETIC
+  NUTRITION
+  WELLNESS
+  COMBINED
+}
+
+enum ShowcaseStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum PatientUploadType {
+  RECOVERY
+  PROGRESS
+  REACTION
+}
+
+enum GroupRole {
+  ADMIN
+  MODERATOR
+  MEMBER
+}
+
+enum PatientUploadStatus {
+  PENDING
+  REVIEWED
+  APPROVED
+  REJECTED
+  ATTACHED_TO_SESSION
+}
+
+enum AuditAction {
+  LOGIN
+  LOGOUT
+  CREATE
+  UPDATE
+  DELETE
+  VIEW
+  ACCESS_GRANTED
+  ACCESS_REVOKED
+  PASSWORD_CHANGED
+  FILE_UPLOADED
+  FILE_DELETED
+}
+
+model DeviceToken {
+  id        String   @id @default(uuid())
+  userId    String
+  token     String   @unique
+  platform  String   // 'android' | 'ios' | 'web'
+  deviceId  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([token])
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  title     String
+  message   String
+  type      String   // 'MESSAGE', 'SESSION', 'CHECKLIST', 'UPLOAD', 'CONTENT', etc.
+  data      Json?    // Additional data like sessionId, messageId, etc.
+  read      Boolean  @default(false)
+  sentAt    DateTime @default(now())
+  readAt    DateTime?
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([read])
+  @@index([sentAt])
+}
