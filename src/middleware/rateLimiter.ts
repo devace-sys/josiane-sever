@@ -6,7 +6,7 @@ import { Request, Response } from 'express';
  * Prevents abuse and DDoS attacks
  */
 
-// Extend Express Request type
+// Extend Express Request with rateLimit (user is defined in src/types/express.d.ts)
 declare module 'express-serve-static-core' {
   interface Request {
     rateLimit?: {
@@ -14,11 +14,6 @@ declare module 'express-serve-static-core' {
       current: number;
       remaining: number;
       resetTime: Date;
-    };
-    user?: {
-      id: string;
-      email?: string;
-      role?: string;
     };
   }
 }

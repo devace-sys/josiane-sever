@@ -4,16 +4,8 @@ import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
-export interface AuthRequest extends Request {
-  user?: {
-    id: string;
-    email: string;
-    userType: 'PATIENT' | 'OPERATOR';
-    role?: string;
-    firstName?: string;
-    lastName?: string;
-  };
-}
+// Use global Express.Request (augmented in src/types/express.d.ts) so handlers are assignable to RequestHandler
+export type AuthRequest = Request;
 
 export const authenticateToken = async (
   req: AuthRequest,
