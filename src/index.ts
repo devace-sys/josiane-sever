@@ -125,36 +125,21 @@ const apiLimiter = productionApiLimiter;
 // Serve uploaded files with authentication and access control
 app.use('/uploads', fileRoutes);
 
-// Health check endpoint with database validation
+// Health check endpoint with database validation (uses shared prisma instance)
 app.get('/health', async (req, res) => {
-  console.log('[SERVER] Health check called from:', req.ip);
-  
   try {
-    // Import prisma dynamically to avoid circular dependency
-    const { PrismaClient } = await import('@prisma/client');
-    const prisma = new PrismaClient();
-    
-    try {
-      // Check database connection
-      await prisma.$queryRaw`SELECT 1`;
-      await prisma.$disconnect();
-      
-      res.status(200).json({ 
-        ok: true,
-        status: 'healthy',
-        timestamp: new Date().toISOString(),
-        database: 'connected',
-        uptime: process.uptime(),
-        environment: process.env.NODE_ENV || 'development',
-      });
-      console.log('[SERVER] Health check passed');
-    } catch (dbError) {
-      await prisma.$disconnect();
-      throw dbError;
-    }
+    await prisma.$queryRaw`SELECT 1`;
+    res.status(200).json({
+      ok: true,
+      status: 'healthy',
+      timestamp: new Date().toISOString(),
+      database: 'connected',
+      uptime: process.uptime(),
+      environment: process.env.NODE_ENV || 'development',
+    });
   } catch (error) {
     console.error('[SERVER] Health check failed:', error);
-    res.status(503).json({ 
+    res.status(503).json({
       ok: false,
       status: 'unhealthy',
       error: 'Database connection failed',
@@ -290,8 +275,6 @@ io.on('connection', (socket: any) => {
     if (currentUserId) {
       onlineUsers.delete(currentUserId);
       socket.broadcast.emit('user-offline', { userId: currentUserId });
-      
-      // Update database - set user offline
       try {
         await prisma.user.update({
           where: { id: currentUserId },
@@ -300,9 +283,6 @@ io.on('connection', (socket: any) => {
       } catch (err) {
         console.error('Failed to update user offline status:', err);
       }
-      
-      // Cleanup: Remove from onlineUsers map to prevent memory leak
-      onlineUsers.delete(currentUserId);
     }
     console.log('Client disconnected:', socket.id);
   });
